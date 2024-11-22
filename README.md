@@ -8,7 +8,7 @@ Additionally, this is one of my first projects in Go, so there may be areas for 
 
 
 TODO :
-- [ ] fix plain http
+- [X] fix plain http
 - [ ] handle errors properly
 - [ ] implement http2
 - [ ] implement http3

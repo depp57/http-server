@@ -2,18 +2,19 @@ package tls
 
 import (
 	"crypto/tls"
+	"errors"
 	"http3-server/logger"
 	"net"
 )
 
-func DecryptConnection(connection net.Conn) net.Conn {
+func DecryptConnection(connection net.Conn) (net.Conn, error) {
 	tlsConnection := tls.Server(connection, loadTlsConfig())
 	err := tlsConnection.Handshake()
 	if err != nil && isPlainHttpConnection(err) {
-		return connection
+		return nil, errors.New("unsupported plain http connection")
 	}
 
-	return tlsConnection
+	return tlsConnection, nil
 }
 
 func isPlainHttpConnection(err error) bool {

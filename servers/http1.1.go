@@ -47,10 +47,10 @@ func (server *Http1Server) ListenAndServe(port int) {
 
 	server.listener = listener
 
-	server.serve()
+	server.serve(port)
 }
 
-func (server *Http1Server) serve() {
+func (server *Http1Server) serve(port int) {
 	for {
 		connection, err := server.listener.Accept()
 		if err != nil {
@@ -60,12 +60,25 @@ func (server *Http1Server) serve() {
 
 		logger.Gray("New connection from %s", connection.RemoteAddr().String())
 
-		connection = tls.DecryptConnection(connection)
+		tlsConnection, err := tls.DecryptConnection(connection)
+		if err != nil {
+			redirectToHttps(connection, port)
+			continue
+		}
 
-		connection.SetDeadline(time.Now().Add(time.Second * 2))
+		tlsConnection.SetDeadline(time.Now().Add(time.Second * 2))
 
-		go handleConnection(connection)
+		go handleConnection(tlsConnection)
 	}
+}
+
+func redirectToHttps(connection net.Conn, port int) {
+	defer connection.Close()
+
+	logger.Blue("redirecting to https")
+	connection.Write([]byte("HTTP/1.1 301 Moved Permanently\r\n"))
+	connection.Write([]byte(fmt.Sprintf("Location: https://localhost:%d%s", port, crlf)))
+	connection.Write([]byte(crlf))
 }
 
 func (request *Request) display() {
@@ -230,10 +243,10 @@ func respond(request *Request, writer io.Writer) {
 
 	readFileInto("public"+request.Path, writer)
 
-	logger.Green("HTTP/1.1 200 OK")
-	logger.Green("%s: %s", headerContentType, contentType)
-	logger.Green("")
-	logger.Green("<body>")
+	logger.Green("| HTTP/1.1 200 OK")
+	logger.Green("| %s: %s", headerContentType, contentType)
+	logger.Green("|")
+	logger.Green("| <body>")
 }
 
 func resolvePath(path string) string {
