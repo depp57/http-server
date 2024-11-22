@@ -2,10 +2,10 @@ package servers
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"http3-server/logger"
 	"http3-server/tls"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -26,11 +26,11 @@ type Http1Server struct {
 }
 
 type Request struct {
-	Path     string
-	Method   string
-	Protocol string
-	Headers  map[string]string
-	Body     string
+	path     string
+	method   string
+	protocol string
+	headers  map[string]string
+	body     string
 }
 
 func NewHttp1Server() *Http1Server {
@@ -52,61 +52,65 @@ func (server *Http1Server) ListenAndServe(port int) {
 
 func (server *Http1Server) serve(port int) {
 	for {
-		connection, err := server.listener.Accept()
+		conn, err := server.listener.Accept()
 		if err != nil {
 			logger.Warn("Failed to accept connection: %v", err)
 			continue
 		}
 
-		logger.Gray("New connection from %s", connection.RemoteAddr().String())
+		logger.Gray("New connection from %s", conn.RemoteAddr().String())
 
-		tlsConnection, err := tls.DecryptConnection(connection)
+		tlsConn, err := tls.DecryptConnection(conn)
 		if err != nil {
-			redirectToHttps(connection, port)
+			redirectToHttps(conn, port)
 			continue
 		}
 
-		tlsConnection.SetDeadline(time.Now().Add(time.Second * 2))
+		tlsConn.SetDeadline(time.Now().Add(time.Second * 2))
 
-		go handleConnection(tlsConnection)
+		go handleConnection(tlsConn)
 	}
 }
 
-func redirectToHttps(connection net.Conn, port int) {
-	defer connection.Close()
+func redirectToHttps(conn net.Conn, port int) {
+	defer conn.Close()
 
 	logger.Blue("redirecting to https")
-	connection.Write([]byte("HTTP/1.1 301 Moved Permanently\r\n"))
-	connection.Write([]byte(fmt.Sprintf("Location: https://localhost:%d%s", port, crlf)))
-	connection.Write([]byte(crlf))
+	_, err1 := conn.Write([]byte("HTTP/1.1 301 Moved Permanently\r\n"))
+	_, err2 := conn.Write([]byte(fmt.Sprintf("Location: https://localhost:%d%s", port, crlf)))
+	_, err3 := conn.Write([]byte(crlf))
+
+	if err := cmp.Or(err1, err2, err3); err != nil {
+		logger.Warn("Failed to write the permanent redirection header")
+	}
 }
 
-func (request *Request) display() {
-	logger.Blue("| %s %s %s", request.Method, request.Path, request.Protocol)
+func (req *Request) display() {
+	logger.Blue("| %s %s %s", req.method, req.path, req.protocol)
 
-	for key, value := range request.Headers {
+	for key, value := range req.headers {
 		logger.Blue("| %s: %s", key, value)
 	}
 
-	if len(request.Body) > 0 {
+	if len(req.body) > 0 {
 		logger.Blue("| <body>")
-		logger.Blue("| %s", request.Body)
+		logger.Blue("| %s", req.body)
 	} else {
 		logger.Blue("| <empty body>")
 	}
 }
 
-func handleConnection(connection net.Conn) {
-	defer connection.Close()
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
 
-	request, err := handleRequest(connection)
+	req, err := handleRequest(conn)
 	if err != nil {
 		logger.Warn("Failed to handle request: %v", err)
 		return
 	}
 
-	request.display()
-	respond(request, connection)
+	req.display()
+	respond(req, conn)
 }
 
 // Build a Request from a http/1.1 message
@@ -120,18 +124,18 @@ func handleConnection(connection net.Conn) {
 // Connection: keep-alive
 //
 // foo=bar
-func handleRequest(connection net.Conn) (*Request, error) {
-	reader := bufio.NewReader(connection)
+func handleRequest(conn net.Conn) (*Request, error) {
+	reader := bufio.NewReader(conn)
 
 	method, path, protocol, err := readFirstLine(reader)
 	if err != nil {
 		return nil, err
 	}
 	request := &Request{
-		Method:   method,
-		Path:     resolvePath(path),
-		Protocol: protocol,
-		Headers:  make(map[string]string, defaultHeadersCount),
+		method:   method,
+		path:     resolvePath(path),
+		protocol: protocol,
+		headers:  make(map[string]string, defaultHeadersCount),
 	}
 
 	err = readHeaders(reader, request)
@@ -163,7 +167,7 @@ func readFirstLine(reader *bufio.Reader) (string, string, string, error) {
 	return parts[0], parts[1], parts[2], nil
 }
 
-func readHeaders(reader *bufio.Reader, request *Request) error {
+func readHeaders(reader *bufio.Reader, req *Request) error {
 	for {
 		key, value, err := readNextHeader(reader)
 		if err != nil {
@@ -172,7 +176,7 @@ func readHeaders(reader *bufio.Reader, request *Request) error {
 			break
 		}
 
-		request.Headers[key] = value
+		req.headers[key] = value
 	}
 
 	return nil
@@ -206,10 +210,10 @@ func readNextHeader(reader *bufio.Reader) (string, string, error) {
 // Example of body
 // foo=bar
 // hello, world!
-func readBody(reader *bufio.Reader, request *Request) {
+func readBody(reader *bufio.Reader, req *Request) {
 	// as per section 8.6 of http semantic, A user agent SHOULD send Content-Length in a request. But MUST NOT.
 	// https://www.rfc-editor.org/rfc/rfc9110#section-8.6
-	contentLength, err := strconv.Atoi(request.Headers[headerContentLength])
+	contentLength, err := strconv.Atoi(req.headers[headerContentLength])
 	if err != nil {
 		contentLength = reader.Buffered()
 	}
@@ -219,7 +223,7 @@ func readBody(reader *bufio.Reader, request *Request) {
 		logger.Warn("Failed to read the body: %v", err)
 	}
 
-	request.Body = string(body)
+	req.body = string(body)
 }
 
 // as per section 6 of HTTP/1.1 protocol: https://www.w3.org/Protocols/rfc2616/rfc2616-sec6.html
@@ -234,14 +238,19 @@ func readBody(reader *bufio.Reader, request *Request) {
 //
 //	with Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
 //	and *-header being different type of header
-func respond(request *Request, writer io.Writer) {
-	contentType := fmt.Sprintf("text/%s", getFileExtension(request.Path))
+func respond(req *Request, conn net.Conn) {
+	contentType := fmt.Sprintf("text/%s", getFileExtension(req.path))
 
-	writer.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK%s", crlf)))
-	writer.Write([]byte(fmt.Sprintf("%s: %s%s", headerContentType, contentType, crlf)))
-	writer.Write([]byte(crlf))
+	_, err1 := conn.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK%s", crlf)))
+	_, err2 := conn.Write([]byte(fmt.Sprintf("%s: %s%s", headerContentType, contentType, crlf)))
+	_, err3 := conn.Write([]byte(crlf))
 
-	readFileInto("public"+request.Path, writer)
+	if err := cmp.Or(err1, err2, err3); err != nil {
+		logger.Warn("Failed to write the response body: %v", err)
+		return
+	}
+
+	sendFile("public"+req.path, conn)
 
 	logger.Green("| HTTP/1.1 200 OK")
 	logger.Green("| %s: %s", headerContentType, contentType)

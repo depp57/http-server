@@ -1,18 +1,21 @@
 package servers
 
 import (
-	"io"
+	"http3-server/logger"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func readFileInto(path string, writer io.Writer) {
+func sendFile(path string, conn net.Conn) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		panic(err)
+		logger.Fatal("cannot read file '%s'", path)
 	}
-	writer.Write(content)
+	if _, err = conn.Write(content); err != nil {
+		logger.Warn("cannot write body to incoming connection")
+	}
 }
 
 func getFileExtension(path string) string {

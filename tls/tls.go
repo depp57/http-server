@@ -10,7 +10,7 @@ import (
 func DecryptConnection(connection net.Conn) (net.Conn, error) {
 	tlsConnection := tls.Server(connection, loadTlsConfig())
 	err := tlsConnection.Handshake()
-	if err != nil && isPlainHttpConnection(err) {
+	if isPlainHttpConnection(err) {
 		return nil, errors.New("unsupported plain http connection")
 	}
 
@@ -20,9 +20,10 @@ func DecryptConnection(connection net.Conn) (net.Conn, error) {
 func isPlainHttpConnection(err error) bool {
 	switch err.(type) {
 	case tls.RecordHeaderError:
-		logger.Blue("plain http connection detected")
+		logger.Blue("Plain http connection detected")
 		return true
 	default:
+		// other TLS errors, ignore since we use local certificate that causes validation errors
 		return false
 	}
 }
