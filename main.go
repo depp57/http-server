@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"http3-server/servers"
+	"http3-server/servers/http1"
+	"http3-server/servers/http2"
+	"http3-server/servers/http3"
 )
 
 type httpServer interface {
@@ -26,7 +28,7 @@ func main() {
 		fmt.Println("Run with -h to display the usage")
 	}
 
-	if flag.NFlag() > 1 {
+	if flag.NFlag() > 2 {
 		flag.Usage()
 	}
 
@@ -34,13 +36,13 @@ func main() {
 
 	switch version {
 	case 1:
-		server = servers.NewHttp1Server()
+		server = http1.NewHttp1Server()
 	case 2:
-		server = servers.NewHttp2Server()
+		server = http2.NewHttp2Server()
 	case 3:
-		server = servers.NewHttp3Server()
+		server = http3.NewHttp3Server()
 	default:
-		panic("unknown version")
+		flag.Usage()
 	}
 
 	server.ListenAndServe(port)

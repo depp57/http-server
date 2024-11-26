@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func sendFile(path string, conn net.Conn) {
+func SendFile(path string, conn net.Conn) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logger.Fatal("cannot read file '%s'", path)
@@ -18,6 +18,6 @@ func sendFile(path string, conn net.Conn) {
 	}
 }
 
-func getFileExtension(path string) string {
+func GetFileExtension(path string) string {
 	return strings.TrimPrefix(filepath.Ext(path), ".")
 }
