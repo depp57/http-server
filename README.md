@@ -1,4 +1,4 @@
-# http3-server
+# http-server
 
 A lightweight and minimal HTTP server implemented in Go for learning purposes, supporting HTTP/1.1 and HTTP/2 (HTTP/3 is abandoned).
 
